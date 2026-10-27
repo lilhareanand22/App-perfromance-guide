@@ -38,7 +38,7 @@ Evaluates your project setup and build configuration **without running the app**
 
 ---
 
-## 📋 Static Score Breakdown (Scoring Criteria)
+## 📋 Static Score Breakdown (Scoring Criteria & Recommendations)
 
 ### A. Android Gradle Plugin (AGP) Version — Max 20 pts
 
@@ -49,6 +49,10 @@ Evaluates your project setup and build configuration **without running the app**
 | 7.4 – 8.1 | 5 |
 | 8.2 – 8.5 | 15 |
 | **8.6+** | **20** |
+
+> **📌 Recommendation:** Always keep AGP updated to the **latest stable version**. Newer AGP versions include critical compilation pipeline improvements, better R8 optimizations, enhanced resource shrinking, and improved support for Baseline & Startup Profiles. This is the **easiest high-impact change** — just upgrading can gain you 20 points.
+
+---
 
 ### B. R8 Code Shrinking & Optimization — Max 20 pts
 
@@ -76,6 +80,10 @@ android {
 android.enableR8.fullMode=true
 ```
 
+> **📌 Recommendation:** Enable **R8 Full Mode** for aggressive optimizations (stronger class merging, inlining). Ensure `minifyEnabled` and `shrinkResources` are both `true` for release builds. Audit and tighten ProGuard/R8 keep rules — avoid overly broad rules like `-dontoptimize`, `-dontshrink`, or package-wide `-keep` that prevent R8 from doing its job. R8 also **rewrites Baseline Profile rules** to match obfuscated class names, so proper R8 setup is essential for profiles to work correctly in production.
+
+---
+
 ### C. Baseline Profile for App Startup
 
 | Status | Points |
@@ -83,6 +91,10 @@ android.enableR8.fullMode=true
 | Not used | 0 |
 | Manually/infrequently updated | 2 |
 | Fully integrated & automated in CI/CD | Max |
+
+> **📌 Recommendation:** Create Baseline Profiles using **Jetpack Macrobenchmark's `BaselineProfileRule`** to pre-compile critical startup code paths via AOT (Ahead-of-Time) compilation. This lets ART skip interpretation and JIT overhead on first launch, dramatically reducing cold start times. **Automate profile generation in your CI/CD pipeline** so profiles stay up to date with every release — stale profiles lose effectiveness as code changes.
+
+---
 
 ### D. Baseline Profiles for User Journeys
 
@@ -94,6 +106,10 @@ Extends baseline profiles beyond startup to cover scrolling, navigation, animati
 | Covers single journey | Partial |
 | Covers multiple major flows, continuously maintained | Max |
 
+> **📌 Recommendation:** Don't stop at startup — extend Baseline Profiles to cover **critical user journeys (CUJs)** like scrolling through `RecyclerView`/`LazyColumn`, navigating between screens, and complex animations. Use Macrobenchmark to record user actions (`uiDevice.findObject(...).click()`, list flings) to capture rich journey traces. This reduces jank and slow frames across the entire user experience, not just the first screen.
+
+---
+
 ### E. Startup Profiles (DEX Layout Optimization)
 
 Places critical startup classes together in `classes.dex` for faster class loading.
@@ -103,12 +119,43 @@ Places critical startup classes together in `classes.dex` for faster class loadi
 | Not implemented | 0 |
 | Implemented with DEX optimization | Full |
 
+> **📌 Recommendation:** Implement **Startup Profiles** (`startup-prof.txt`) alongside Baseline Profiles. While Baseline Profiles tell ART *what to pre-compile*, Startup Profiles instruct **D8/R8 compilers** to physically **co-locate startup-critical classes** together inside the primary `classes.dex` file. This reduces page faults and disk I/O overhead during app launch. Generate them using Macrobenchmark and ensure primary DEX overflow is managed properly.
+
+---
+
 ### F. `reportFullyDrawn()` / `FullyDrawnReporter` — 5 pts
 
 | Status | Points |
 |--------|--------|
 | Not using | 0 |
 | **Using `reportFullyDrawn()` or `FullyDrawnReporter`** | **5** |
+
+> **📌 Recommendation:** Call `reportFullyDrawn()` (or use Jetpack's `FullyDrawnReporter` / Compose's `ReportDrawn()`) once your app has **finished loading all async content** and is truly fully interactive. This unlocks accurate **TTFD (Time to Full Display)** measurement, enables better Startup Profile creation by the system, and is critical for correct Macrobenchmark results. Without it, the system guesses when your app is ready — often inaccurately.
+
+---
+
+## 📊 Dynamic Score — Recommendations per Metric
+
+### G. App Startup Time (TTID / TTFD)
+
+> **📌 Recommendation:**
+> - **Minimize work in `Application.onCreate()`** — avoid initializing heavy SDKs synchronously on the main thread. Use `androidx.startup` for lazy, on-demand initialization.
+> - **Defer "below-the-fold" content** — lazily load UI elements not immediately visible on screen.
+> - **Offload blocking operations** — move disk I/O, JSON parsing, database queries, and network calls off the main thread to background dispatchers.
+> - **Use Baseline + Startup Profiles** together to ensure critical startup paths are AOT-compiled and DEX-optimized.
+> - **Target:** Cold start TTID **< 2 seconds**.
+
+---
+
+### H. UI Rendering / Frame Rate (Slow & Frozen Frames)
+
+> **📌 Recommendation:**
+> - **Flatten layout hierarchies** — use `ConstraintLayout` or Jetpack Compose to reduce nested `onMeasure`/`onLayout` passes.
+> - **Eliminate overdraw** — use Layout Inspector to find unnecessary background layers being drawn.
+> - **Avoid allocations in draw loops** — custom canvas drawing or complex animations should not allocate objects inside `onDraw()`, which triggers GC pauses.
+> - **Reduce recomposition (Compose)** — use `derivedStateOf`, stable types, and `key()` to isolate UI invalidations. Inspect with Compose Layout Inspector.
+> - **Enable StrictMode in debug** — catch accidental disk/network operations on the UI thread early.
+> - **Target:** Slow frames **≤ 25%**, Frozen frames **≤ 0.1%** of session frames.
 
 ---
 
